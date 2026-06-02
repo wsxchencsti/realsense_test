@@ -1,5 +1,6 @@
 
 import cv2
+import math
 import numpy as np
 
 from . FpsCounter import FpsCounter
@@ -20,6 +21,8 @@ kDistanceDeadband = 0.05
 kLinearDistanceKp = 0.6
 kMaxForwardVelocity = 0.6
 kLinearVelocitySmooth = 0.6
+kAngularHeadingKp = 1.2
+kHeadingDeadband = 0.05
 
 class RobotController(object):
     def __init__(self):
@@ -146,8 +149,23 @@ class RobotController(object):
             cv2.circle(frame,center,2,[0,0,255],-1) # 画出选框中心点
 
             #cal radian_velocity
-            angle=(center[0]/shape[1]-0.5)*2        # range -1 to 1
-            radian_velocity = -angle*TransferConstants.kMaxRadianVelocity
+            person_lateral = None
+            person_forward = None
+            heading_error = None
+            if person_point is not None:
+                person_lateral = -person_point[0]
+                person_forward = person_point[2]
+                heading_error = math.atan2(person_lateral, person_forward)
+                if abs(heading_error) < kHeadingDeadband:
+                    radian_velocity = 0.0
+                else:
+                    radian_velocity = heading_error * kAngularHeadingKp
+                    radian_velocity = max(
+                        -TransferConstants.kMaxRadianVelocity,
+                        min(TransferConstants.kMaxRadianVelocity, radian_velocity)
+                    )
+            else:
+                radian_velocity = 0.0
 
             #cal linear_velocity
             if person_distance is not None:
@@ -181,9 +199,8 @@ class RobotController(object):
                 cv2.putText(frame,"person depth {:.02f} m".format(person_distance),(0,350), cv2.FONT_HERSHEY_PLAIN, 2, [255,0,0], 3)
                 cv2.putText(frame,"target depth {:.02f} m".format(kTargetDistance),(0,400), cv2.FONT_HERSHEY_PLAIN, 2, [255,0,0], 3)
                 if person_point is not None:
-                    person_lateral = -person_point[0]
-                    person_forward = person_point[2]
                     cv2.putText(frame,"person x {:.02f} z {:.02f} m".format(person_lateral, person_forward),(0,450), cv2.FONT_HERSHEY_PLAIN, 2, [255,0,0], 3)
+                    cv2.putText(frame,"heading {:.02f} rad".format(heading_error),(0,500), cv2.FONT_HERSHEY_PLAIN, 2, [255,0,0], 3)
             else:
                 cv2.putText(frame,"person depth invalid",(0,350), cv2.FONT_HERSHEY_PLAIN, 2, [0,0,255], 3)
 
