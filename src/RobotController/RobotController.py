@@ -15,11 +15,10 @@ else:
 
 kDefaultTrackId = 0
 kDefaultTrackMode = False
-kTargetDistance = 1.5
-kDistanceDeadband = 0.2
+kTargetDistance = 0.5
+kDistanceDeadband = 0.05
 kLinearDistanceKp = 0.6
 kMaxForwardVelocity = 0.6
-kMaxBackwardVelocity = -0.2
 kLinearVelocitySmooth = 0.6
 
 class RobotController(object):
@@ -143,11 +142,11 @@ class RobotController(object):
             #cal linear_velocity
             if person_distance is not None:
                 distance_error = person_distance - kTargetDistance
-                if abs(distance_error) < kDistanceDeadband:
+                if distance_error <= kDistanceDeadband:
                     target_linear_velocity = 0.0
                 else:
                     target_linear_velocity = distance_error * kLinearDistanceKp
-                    target_linear_velocity = max(kMaxBackwardVelocity, min(kMaxForwardVelocity, target_linear_velocity))
+                    target_linear_velocity = min(kMaxForwardVelocity, target_linear_velocity)
                 linear_velocity = (
                     kLinearVelocitySmooth * self.last_linear_velocity
                     + (1.0 - kLinearVelocitySmooth) * target_linear_velocity
