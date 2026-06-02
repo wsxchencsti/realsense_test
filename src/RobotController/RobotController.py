@@ -15,6 +15,12 @@ else:
 
 kDefaultTrackId = 0
 kDefaultTrackMode = False
+kTargetDistance = 1.5
+kDistanceDeadband = 0.2
+kLinearDistanceKp = 0.6
+kMaxForwardVelocity = 0.6
+kMaxBackwardVelocity = -0.2
+kLinearVelocitySmooth = 0.6
 
 class RobotController(object):
     def __init__(self):
@@ -135,13 +141,19 @@ class RobotController(object):
             radian_velocity = -angle*TransferConstants.kMaxRadianVelocity
 
             #cal linear_velocity
-            top=y1/shape[0]
-            if top < 0.25:
-                kp_linear_x = 5
-                kd_linear_x = 0.2
-                linear_velocity = top * kp_linear_x - self.last_linear_velocity * kd_linear_x
+            if person_distance is not None:
+                distance_error = person_distance - kTargetDistance
+                if abs(distance_error) < kDistanceDeadband:
+                    target_linear_velocity = 0.0
+                else:
+                    target_linear_velocity = distance_error * kLinearDistanceKp
+                    target_linear_velocity = max(kMaxBackwardVelocity, min(kMaxForwardVelocity, target_linear_velocity))
+                linear_velocity = (
+                    kLinearVelocitySmooth * self.last_linear_velocity
+                    + (1.0 - kLinearVelocitySmooth) * target_linear_velocity
+                )
             else:
-                linear_velocity=TransferConstants.kMaxLinerVelocity
+                linear_velocity = 0.0
 
             #draw
             cv2.putText(frame,"Selected ID {:}".format(self.GetTargetId()),(20,125), cv2.FONT_HERSHEY_PLAIN, 2, [255,0,0], 2)
@@ -158,6 +170,7 @@ class RobotController(object):
             cv2.putText(frame,"{:.02f} rad/s".format(radian_velocity),(0,300), cv2.FONT_HERSHEY_PLAIN, 2, [255,0,0], 3)
             if person_distance is not None:
                 cv2.putText(frame,"person depth {:.02f} m".format(person_distance),(0,350), cv2.FONT_HERSHEY_PLAIN, 2, [255,0,0], 3)
+                cv2.putText(frame,"target depth {:.02f} m".format(kTargetDistance),(0,400), cv2.FONT_HERSHEY_PLAIN, 2, [255,0,0], 3)
             else:
                 cv2.putText(frame,"person depth invalid",(0,350), cv2.FONT_HERSHEY_PLAIN, 2, [0,0,255], 3)
 
@@ -169,6 +182,11 @@ class RobotController(object):
             self.last_linear_velocity = linear_velocity
             return frame
         else:
+            if kUseRos1Transfer:
+                self.ros1_transfer.SendCmdVel(0.0, 0.0)
+            else:
+                self.ros2_transfer.SendCmdVel(0.0, 0.0)
+            self.last_linear_velocity = 0.0
             cv2.putText(frame,"Miss Person".format(self.GetTargetId()),(20,100), cv2.FONT_HERSHEY_PLAIN, 2, [0,0,255], 3)
             cv2.putText(frame,"Press \"Enter\" to reset ID",(20,125), cv2.FONT_HERSHEY_PLAIN, 2, [255,0,0], 2)
             cv2.putText(frame,"{:.02f} m/s".format(0),(0,250), cv2.FONT_HERSHEY_PLAIN, 2, [255,0,0], 3)
@@ -181,6 +199,11 @@ class RobotController(object):
         frame = cv2.putText(frame, "fps {:.02f}".format(self.fps_counter.GetFps()), (10, 20),
                     cv2.FONT_HERSHEY_PLAIN, 2, [0, 128, 0], 2)
         self.InputAndProcess(frame)
+        if kUseRos1Transfer:
+            self.ros1_transfer.SendCmdVel(0.0, 0.0)
+        else:
+            self.ros2_transfer.SendCmdVel(0.0, 0.0)
+        self.last_linear_velocity = 0.0
 
         cv2.putText(frame,"Stop",(20,100), cv2.FONT_HERSHEY_PLAIN, 2, [0,0,255], 3)
         cv2.putText(frame,"Enter the object ID:",(20,125), cv2.FONT_HERSHEY_PLAIN, 2, [255,0,0], 2)
