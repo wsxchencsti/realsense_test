@@ -24,11 +24,12 @@ while break_flag != True:
     if type(bgr_frame) == type(None):
         continue
     depth_frame = realsense_wrapper.GetDepthFrame()
+    color_intrinsics = realsense_wrapper.GetColorIntrinsics()
 
     ####################
     # control the robot
     ####################
-    final_frame = robot_controller.Run(bgr_frame, depth_frame)
+    final_frame = robot_controller.Run(bgr_frame, depth_frame, color_intrinsics)
     if type(final_frame) == type(None):
         continue
 

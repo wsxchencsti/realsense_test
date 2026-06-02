@@ -91,6 +91,15 @@ class RobotController(object):
             return None, (rx1, ry1, rx2, ry2)
 
         return float(np.median(distances)), (rx1, ry1, rx2, ry2)
+
+    def DeprojectPixelToPoint(self, intrinsics, pixel_x, pixel_y, depth):
+        if intrinsics is None or depth is None or depth <= 0:
+            return None
+
+        camera_x = (pixel_x - intrinsics.ppx) / intrinsics.fx * depth
+        camera_y = (pixel_y - intrinsics.ppy) / intrinsics.fy * depth
+        camera_z = depth
+        return camera_x, camera_y, camera_z
     
     def InputAndProcess(self, frame):
         key = cv2.waitKey(1)
@@ -116,7 +125,7 @@ class RobotController(object):
                 self.SetIsTracking(False)
         frame = cv2.putText(frame, self.id_str, (20, 150), cv2.FONT_HERSHEY_PLAIN, 2, [255, 0, 0], 2)
 
-    def TrackAndDraw(self, frame, box, depth_frame=None):
+    def TrackAndDraw(self, frame, box, depth_frame=None, color_intrinsics=None):
         shape = frame.shape
         frame = cv2.UMat(frame)
 
@@ -133,6 +142,7 @@ class RobotController(object):
             center=((x1+x2)//2, (y1+y2)//2)
             person_distance, depth_region = self.GetBoxCenterDistance(
                 depth_frame, x1, y1, x2, y2, shape[1], shape[0])
+            person_point = self.DeprojectPixelToPoint(color_intrinsics, center[0], center[1], person_distance)
             cv2.circle(frame,center,2,[0,0,255],-1) # 画出选框中心点
 
             #cal radian_velocity
@@ -170,6 +180,10 @@ class RobotController(object):
             if person_distance is not None:
                 cv2.putText(frame,"person depth {:.02f} m".format(person_distance),(0,350), cv2.FONT_HERSHEY_PLAIN, 2, [255,0,0], 3)
                 cv2.putText(frame,"target depth {:.02f} m".format(kTargetDistance),(0,400), cv2.FONT_HERSHEY_PLAIN, 2, [255,0,0], 3)
+                if person_point is not None:
+                    person_lateral = -person_point[0]
+                    person_forward = person_point[2]
+                    cv2.putText(frame,"person x {:.02f} z {:.02f} m".format(person_lateral, person_forward),(0,450), cv2.FONT_HERSHEY_PLAIN, 2, [255,0,0], 3)
             else:
                 cv2.putText(frame,"person depth invalid",(0,350), cv2.FONT_HERSHEY_PLAIN, 2, [0,0,255], 3)
 
@@ -210,12 +224,12 @@ class RobotController(object):
         cv2.putText(frame,"{:.02f} rad/s".format(0),(0,300), cv2.FONT_HERSHEY_PLAIN, 2, [255,0,0], 3)    
         return frame
 
-    def Run(self, frame, depth_frame=None):
+    def Run(self, frame, depth_frame=None, color_intrinsics=None):
         results = self.yolo_wrapper.Track(frame)
         if(len(results)>0):
             if(self.GetIsTracking()):
                 box = self.FindTarget(results[0].boxes)                
-                return self.TrackAndDraw(frame, box, depth_frame)
+                return self.TrackAndDraw(frame, box, depth_frame, color_intrinsics)
             else:
                 frame = results[0].plot()
                 return self.NonTrackAndDraw(frame)
