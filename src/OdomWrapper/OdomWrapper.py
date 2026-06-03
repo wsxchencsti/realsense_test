@@ -77,6 +77,8 @@ class OdomWrapper:
         self.spin_thread.start()
 
         print('OdomWrapper topics: {}'.format(', '.join(topics)))
+        time.sleep(1.0)
+        print('OdomWrapper visible odom topics: {}'.format(', '.join(self.GetVisibleOdomTopics())))
 
     def __del__(self):
         try:
@@ -113,3 +115,10 @@ class OdomWrapper:
             else:
                 age = time.time() - self.node.last_receive_time
             return self.node.topic, self.node.qos_name, self.node.receive_count, age
+
+    def GetVisibleOdomTopics(self):
+        visible_topics = []
+        for topic, topic_types in self.node.get_topic_names_and_types():
+            if 'odom' in topic.lower():
+                visible_topics.append('{}:{}'.format(topic, ','.join(topic_types)))
+        return visible_topics
