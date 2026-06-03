@@ -12,13 +12,17 @@ class _OdomSubscriber(Node):
     def __init__(self, topics):
         super().__init__('track_odom_subscriber')
 
-        best_effort_qos = QoSProfile(depth=1)
-        best_effort_qos.history = HistoryPolicy.KEEP_LAST
-        best_effort_qos.reliability = ReliabilityPolicy.BEST_EFFORT
+        best_effort_qos = QoSProfile(
+            depth=1,
+            history=HistoryPolicy.KEEP_LAST,
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+        )
 
-        reliable_qos = QoSProfile(depth=1)
-        reliable_qos.history = HistoryPolicy.KEEP_LAST
-        reliable_qos.reliability = ReliabilityPolicy.RELIABLE
+        reliable_qos = QoSProfile(
+            depth=1,
+            history=HistoryPolicy.KEEP_LAST,
+            reliability=ReliabilityPolicy.RELIABLE,
+        )
 
         self.lock = threading.Lock()
         self.pose = None
@@ -26,13 +30,13 @@ class _OdomSubscriber(Node):
         self.qos_name = None
         self.receive_count = 0
         self.last_receive_time = None
-        self.subscriptions = []
+        self.odom_subscriptions = []
 
         for topic in topics:
-            self.subscriptions.append(
+            self.odom_subscriptions.append(
                 self.create_subscription(Odometry, topic, self.MakeOdomCallback(topic, 'best_effort'), best_effort_qos)
             )
-            self.subscriptions.append(
+            self.odom_subscriptions.append(
                 self.create_subscription(Odometry, topic, self.MakeOdomCallback(topic, 'reliable'), reliable_qos)
             )
 
