@@ -26,6 +26,8 @@ kHeadingDeadband = 0.05
 kPathMinPointDistance = 0.10
 kPathLookaheadDistance = 0.60
 kPathTargetDeadband = 0.08
+kPathTurnInPlaceHeading = 0.45
+kLostPathMaxForwardVelocity = 0.35
 kMaxPathPoints = 1000
 
 class RobotController(object):
@@ -159,6 +161,64 @@ class RobotController(object):
 
         return self.person_path[target_index], closest_index, target_index
 
+    def ClampRadianVelocity(self, heading_error):
+        if heading_error is None or abs(heading_error) < kHeadingDeadband:
+            return 0.0
+
+        radian_velocity = heading_error * kAngularHeadingKp
+        return max(
+            -TransferConstants.kMaxRadianVelocity,
+            min(TransferConstants.kMaxRadianVelocity, radian_velocity)
+        )
+
+    def CalculatePathCommand(self, odom_pose, max_forward_velocity):
+        path_target, path_closest_index, path_target_index = self.GetPathLookaheadTarget(odom_pose)
+        path_target_robot = self.TransformOdomToRobot(path_target, odom_pose)
+        path_info = {
+            "target": path_target,
+            "closest_index": path_closest_index,
+            "target_index": path_target_index,
+            "target_robot": path_target_robot,
+            "forward": None,
+            "lateral": None,
+            "distance": None,
+            "heading_error": None,
+            "target_linear_velocity": 0.0,
+        }
+
+        if path_target_robot is None:
+            return None, path_info
+
+        control_forward, control_lateral = path_target_robot
+        control_distance = math.sqrt(control_forward * control_forward + control_lateral * control_lateral)
+        heading_error = math.atan2(control_lateral, control_forward)
+        path_info["forward"] = control_forward
+        path_info["lateral"] = control_lateral
+        path_info["distance"] = control_distance
+        path_info["heading_error"] = heading_error
+
+        if control_distance <= kPathTargetDeadband:
+            return None, path_info
+
+        radian_velocity = self.ClampRadianVelocity(heading_error)
+        target_linear_velocity = 0.0
+        if abs(heading_error) < kPathTurnInPlaceHeading and control_forward > kPathTargetDeadband:
+            target_linear_velocity = control_distance * kLinearDistanceKp
+            target_linear_velocity = min(max_forward_velocity, target_linear_velocity)
+            turn_scale = max(0.2, 1.0 - min(1.0, abs(heading_error)))
+            target_linear_velocity *= turn_scale
+
+        path_info["target_linear_velocity"] = target_linear_velocity
+        if target_linear_velocity <= 0.0:
+            linear_velocity = 0.0
+        else:
+            linear_velocity = (
+                kLinearVelocitySmooth * self.last_linear_velocity
+                + (1.0 - kLinearVelocitySmooth) * target_linear_velocity
+            )
+
+        return (linear_velocity, radian_velocity, target_linear_velocity), path_info
+
     def ClearPersonPath(self):
         self.person_path = []
 
@@ -248,7 +308,7 @@ class RobotController(object):
             person_point = self.DeprojectPixelToPoint(color_intrinsics, center[0], center[1], person_distance)
             cv2.circle(frame,center,2,[0,0,255],-1) # 画出选框中心点
 
-            #cal target and radian_velocity
+            #cal target and velocity
             person_lateral = None
             person_forward = None
             person_odom = None
@@ -261,6 +321,10 @@ class RobotController(object):
             control_forward = None
             control_lateral = None
             heading_error = None
+            distance_error = None
+            target_linear_velocity = 0.0
+            linear_velocity = 0.0
+            radian_velocity = 0.0
             if person_point is not None:
                 person_lateral = -person_point[0]
                 person_forward = person_point[2]
@@ -270,64 +334,42 @@ class RobotController(object):
                 control_forward = person_forward
                 control_lateral = person_lateral
 
-            path_target, path_closest_index, path_target_index = self.GetPathLookaheadTarget(odom_pose)
-            path_target_robot = self.TransformOdomToRobot(path_target, odom_pose)
-            if path_target_robot is not None and path_target_robot[0] > kPathTargetDeadband:
-                control_forward, control_lateral = path_target_robot
+            path_command, path_info = self.CalculatePathCommand(odom_pose, kMaxForwardVelocity)
+            path_target = path_info["target"]
+            path_closest_index = path_info["closest_index"]
+            path_target_index = path_info["target_index"]
+            path_target_robot = path_info["target_robot"]
+            if path_command is not None:
                 control_mode = "path"
-
-            if control_forward is not None and control_lateral is not None:
-                heading_error = math.atan2(control_lateral, max(kPathTargetDeadband, control_forward))
-                if abs(heading_error) < kHeadingDeadband:
-                    radian_velocity = 0.0
-                else:
-                    radian_velocity = heading_error * kAngularHeadingKp
-                    radian_velocity = max(
-                        -TransferConstants.kMaxRadianVelocity,
-                        min(TransferConstants.kMaxRadianVelocity, radian_velocity)
-                    )
-            else:
-                radian_velocity = 0.0
-
-            #cal linear_velocity
-            distance_error = None
-            target_linear_velocity = 0.0
-            force_stop_by_distance = person_distance is not None and person_distance <= kTargetDistance
-            if person_distance is not None:
+                linear_velocity, radian_velocity, target_linear_velocity = path_command
+                control_forward = path_info["forward"]
+                control_lateral = path_info["lateral"]
+                heading_error = path_info["heading_error"]
+                distance_error = path_info["distance"]
+            elif person_point is not None and person_distance is not None:
+                control_mode = "person"
+                heading_error = person_heading_error
+                radian_velocity = self.ClampRadianVelocity(heading_error)
                 distance_error = person_distance - kTargetDistance
-            if force_stop_by_distance or person_distance is None:
-                linear_velocity = 0.0
-            elif control_forward is not None and control_lateral is not None:
-                if control_mode == "path":
-                    control_distance = math.sqrt(control_forward * control_forward + control_lateral * control_lateral)
-                    distance_error = control_distance
-                    if control_distance <= kPathTargetDeadband:
-                        target_linear_velocity = 0.0
-                    else:
-                        target_linear_velocity = control_distance * kLinearDistanceKp
-                        target_linear_velocity = min(kMaxForwardVelocity, target_linear_velocity)
-                else:
-                    distance_error = person_distance - kTargetDistance
-                    if distance_error <= kDistanceDeadband:
-                        target_linear_velocity = 0.0
-                    else:
-                        target_linear_velocity = distance_error * kLinearDistanceKp
-                        target_linear_velocity = min(kMaxForwardVelocity, target_linear_velocity)
-
-                if heading_error is not None:
-                    turn_scale = max(0.2, 1.0 - min(1.0, abs(heading_error)))
-                    target_linear_velocity *= turn_scale
-
-                if target_linear_velocity <= 0.0:
-                    target_linear_velocity = 0.0
-                    linear_velocity = 0.0
-                else:
+                if distance_error > kDistanceDeadband:
+                    target_linear_velocity = distance_error * kLinearDistanceKp
+                    target_linear_velocity = min(kMaxForwardVelocity, target_linear_velocity)
+                    if heading_error is not None:
+                        turn_scale = max(0.2, 1.0 - min(1.0, abs(heading_error)))
+                        target_linear_velocity *= turn_scale
                     linear_velocity = (
                         kLinearVelocitySmooth * self.last_linear_velocity
                         + (1.0 - kLinearVelocitySmooth) * target_linear_velocity
                     )
             else:
+                control_mode = "none"
+
+            force_stop_by_distance = person_distance is not None and person_distance <= kTargetDistance
+            if force_stop_by_distance:
                 linear_velocity = 0.0
+                target_linear_velocity = 0.0
+            if distance_error is None and person_distance is not None:
+                distance_error = person_distance - kTargetDistance
 
             #draw
             label = '{}{:d}'.format("", self.GetTargetId())
@@ -364,16 +406,29 @@ class RobotController(object):
             self.last_linear_velocity = linear_velocity
             return frame
         else:
+            path_command, path_info = self.CalculatePathCommand(odom_pose, kLostPathMaxForwardVelocity)
+            control_mode = "lost_stop"
+            linear_velocity = 0.0
+            radian_velocity = 0.0
+            target_linear_velocity = 0.0
+            if path_command is not None:
+                control_mode = "lost_path"
+                linear_velocity, radian_velocity, target_linear_velocity = path_command
+
             if kUseRos1Transfer:
-                self.ros1_transfer.SendCmdVel(0.0, 0.0)
+                self.ros1_transfer.SendCmdVel(linear_velocity, radian_velocity)
             else:
-                self.ros2_transfer.SendCmdVel(0.0, 0.0)
-            self.last_linear_velocity = 0.0
+                self.ros2_transfer.SendCmdVel(linear_velocity, radian_velocity)
+            self.last_linear_velocity = linear_velocity
             self.DrawOdomPose(frame, odom_pose, 50, odom_topic, odom_status)
             cv2.putText(frame,"lost ID {:}".format(self.GetTargetId()),(20,100), cv2.FONT_HERSHEY_PLAIN, 1.2, [0,0,255], 1)
             cv2.putText(frame,"enter reset",(20,120), cv2.FONT_HERSHEY_PLAIN, 1.2, [255,0,0], 1)
-            cv2.putText(frame,"v 0.00 m/s",(0,250), cv2.FONT_HERSHEY_PLAIN, 1.2, [255,0,0], 1)
-            cv2.putText(frame,"w 0.00 rad/s",(0,270), cv2.FONT_HERSHEY_PLAIN, 1.2, [255,0,0], 1)
+            cv2.putText(frame,"v {:.2f} m/s".format(linear_velocity),(0,250), cv2.FONT_HERSHEY_PLAIN, 1.2, [255,0,0], 1)
+            cv2.putText(frame,"w {:.2f} rad/s".format(radian_velocity),(0,270), cv2.FONT_HERSHEY_PLAIN, 1.2, [255,0,0], 1)
+            cv2.putText(frame,"mode {} target_v {:.2f}".format(control_mode, target_linear_velocity),(0,290), cv2.FONT_HERSHEY_PLAIN, 1.2, [255,0,0], 1)
+            cv2.putText(frame,"path n {:d} idx {}->{}".format(len(self.person_path), path_info["closest_index"], path_info["target_index"]),(0,310), cv2.FONT_HERSHEY_PLAIN, 1.2, [255,0,0], 1)
+            if path_info["forward"] is not None and path_info["heading_error"] is not None:
+                cv2.putText(frame,"ctrl x {:.2f} z {:.2f} head {:.2f}".format(path_info["lateral"], path_info["forward"], path_info["heading_error"]),(0,330), cv2.FONT_HERSHEY_PLAIN, 1.2, [255,0,0], 1)
             return frame
 
     def NonTrackAndDraw(self, frame, odom_pose=None, odom_topic=None, odom_status=None):
@@ -403,3 +458,6 @@ class RobotController(object):
             else:
                 frame = results[0].plot()
                 return self.NonTrackAndDraw(frame, odom_pose, odom_topic, odom_status)
+        if(self.GetIsTracking()):
+            return self.TrackAndDraw(frame, None, depth_frame, color_intrinsics, odom_pose, odom_topic, odom_status)
+        return self.NonTrackAndDraw(frame, odom_pose, odom_topic, odom_status)
