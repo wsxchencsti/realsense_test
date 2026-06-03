@@ -113,27 +113,44 @@ class RobotController(object):
         person_odom_y = robot_y + math.sin(robot_yaw) * person_forward + math.cos(robot_yaw) * person_lateral
         return person_odom_x, person_odom_y
 
-    def DrawOdomPose(self, frame, odom_pose, y, odom_topic=None, odom_status=None):
+    def FormatValue(self, value, unit="", precision=2):
+        if value is None:
+            return "--"
+        return ("{:.%df}{}" % precision).format(value, unit)
+
+    def DrawDebugPanel(self, frame, lines, x=10, y=10):
+        line_height = 22
+        padding = 8
+        width = 500
+        height = padding * 2 + line_height * len(lines)
+
+        overlay = frame.copy()
+        cv2.rectangle(overlay, (x, y), (x + width, y + height), [20, 20, 20], -1)
+        cv2.addWeighted(overlay, 0.55, frame, 0.45, 0, frame)
+
+        for index, (text, color) in enumerate(lines):
+            text_y = y + padding + 16 + index * line_height
+            cv2.putText(frame, text, (x + padding, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv2.LINE_AA)
+
+    def BuildOdomLines(self, odom_pose, odom_topic=None, odom_status=None):
         if odom_pose is None:
-            cv2.putText(frame,"odom invalid",(0,y), cv2.FONT_HERSHEY_PLAIN, 1.5, [0,0,255], 2)
+            receive_count = 0
             if odom_status is not None:
-                topic, qos_name, receive_count, age = odom_status
-                cv2.putText(frame,"odom recv {}".format(receive_count),
-                            (0,y + 25), cv2.FONT_HERSHEY_PLAIN, 1.5, [0,0,255], 2)
-            return
+                _, _, receive_count, _ = odom_status
+            return [("ODOM invalid  recv={}".format(receive_count), [0, 80, 255])]
 
         robot_x, robot_y, robot_yaw = odom_pose
         topic_text = odom_topic if odom_topic is not None else "odom"
-        cv2.putText(frame,"odom x {:.02f} y {:.02f} yaw {:.02f}".format(robot_x, robot_y, robot_yaw),
-                    (0,y), cv2.FONT_HERSHEY_PLAIN, 1.5, [255,0,0], 2)
+        qos_text = ""
         if odom_status is not None:
-            topic, qos_name, receive_count, age = odom_status
-            age_text = "none" if age is None else "{:.02f}s".format(age)
-            cv2.putText(frame,"odom topic {} qos {} age {}".format(topic_text, qos_name, age_text),
-                        (0,y + 25), cv2.FONT_HERSHEY_PLAIN, 1.5, [255,0,0], 2)
-        else:
-            cv2.putText(frame,"odom topic {}".format(topic_text),
-                        (0,y + 25), cv2.FONT_HERSHEY_PLAIN, 1.5, [255,0,0], 2)
+            _, qos_name, _, age = odom_status
+            age_text = "--" if age is None else "{:.2f}s".format(age)
+            qos_text = "  qos={} age={}".format(qos_name, age_text)
+
+        return [
+            ("ODOM x={:.2f} y={:.2f} yaw={:.2f}".format(robot_x, robot_y, robot_yaw), [120, 220, 255]),
+            ("ODOM src={}{}".format(topic_text, qos_text), [120, 220, 255]),
+        ]
     
     def InputAndProcess(self, frame):
         key = cv2.waitKey(1)
@@ -157,15 +174,12 @@ class RobotController(object):
                 self.id_str == ""
                 self.target_id = 0
                 self.SetIsTracking(False)
-        frame = cv2.putText(frame, self.id_str, (20, 150), cv2.FONT_HERSHEY_PLAIN, 2, [255, 0, 0], 2)
+        return frame
 
     def TrackAndDraw(self, frame, box, depth_frame=None, color_intrinsics=None, odom_pose=None, odom_topic=None, odom_status=None):
         shape = frame.shape
-        frame = cv2.UMat(frame)
 
         self.fps_counter.Count()
-        frame = cv2.putText(frame, "fps {:.02f}".format(self.fps_counter.GetFps()), (10, 20),
-                    cv2.FONT_HERSHEY_PLAIN, 2, [0, 128, 0], 2)
         self.InputAndProcess(frame)
 
         if(box != None):            
@@ -218,8 +232,6 @@ class RobotController(object):
                 linear_velocity = 0.0
 
             #draw
-            cv2.putText(frame,"Selected ID {:}".format(self.GetTargetId()),(20,125), cv2.FONT_HERSHEY_PLAIN, 2, [255,0,0], 2)
-            cv2.putText(frame,"Press \"Enter\" to reset ID",(20,150), cv2.FONT_HERSHEY_PLAIN, 2, [255,0,0], 2)
             label = '{}{:d}'.format("", self.GetTargetId())
             t_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_PLAIN, 2 , 2)[0]
             cv2.rectangle(frame, (x1, y1), (x2, y2), [255,128,128], 2)
@@ -228,20 +240,22 @@ class RobotController(object):
                 cv2.rectangle(frame, (rx1, ry1), (rx2, ry2), [0,255,0], 2)
             cv2.rectangle(frame,(x1, y1),(x1+t_size[0]+3,y1+t_size[1]+4), [255,128,128],-1)
             cv2.putText(frame,label,(x1,y1+t_size[1]+4), cv2.FONT_HERSHEY_PLAIN, 2, [255,255,255], 2)
-            cv2.putText(frame,"{:.02f} m/s".format(linear_velocity),(0,250), cv2.FONT_HERSHEY_PLAIN, 2, [255,0,0], 3)
-            cv2.putText(frame,"{:.02f} rad/s".format(radian_velocity),(0,300), cv2.FONT_HERSHEY_PLAIN, 2, [255,0,0], 3)
-            if person_distance is not None:
-                cv2.putText(frame,"person depth {:.02f} m".format(person_distance),(0,350), cv2.FONT_HERSHEY_PLAIN, 2, [255,0,0], 3)
-                cv2.putText(frame,"target depth {:.02f} m".format(kTargetDistance),(0,400), cv2.FONT_HERSHEY_PLAIN, 2, [255,0,0], 3)
-                cv2.putText(frame,"dist err {:.02f} target v {:.02f}".format(distance_error, target_linear_velocity),(0,425), cv2.FONT_HERSHEY_PLAIN, 1.5, [255,0,0], 2)
-                if person_point is not None:
-                    cv2.putText(frame,"person x {:.02f} z {:.02f} m".format(person_lateral, person_forward),(0,450), cv2.FONT_HERSHEY_PLAIN, 2, [255,0,0], 3)
-                    cv2.putText(frame,"heading {:.02f} rad".format(heading_error),(0,500), cv2.FONT_HERSHEY_PLAIN, 2, [255,0,0], 3)
-                    if person_odom is not None:
-                        cv2.putText(frame,"person odom x {:.02f} y {:.02f}".format(person_odom[0], person_odom[1]),(0,75), cv2.FONT_HERSHEY_PLAIN, 1.5, [255,0,0], 2)
+
+            debug_lines = [
+                ("FPS {:.1f}  MODE tracking  ID {}  enter=reset".format(self.fps_counter.GetFps(), self.GetTargetId()), [80, 255, 80]),
+                ("CMD v={}m/s  w={}rad/s  target_v={}m/s".format(
+                    self.FormatValue(linear_velocity), self.FormatValue(radian_velocity), self.FormatValue(target_linear_velocity)), [255, 180, 80]),
+                ("DEPTH person={}m  target={}m  err={}m".format(
+                    self.FormatValue(person_distance), self.FormatValue(kTargetDistance), self.FormatValue(distance_error)), [255, 180, 80]),
+                ("REL lateral={}m  forward={}m  heading={}rad".format(
+                    self.FormatValue(person_lateral), self.FormatValue(person_forward), self.FormatValue(heading_error)), [255, 220, 120]),
+            ]
+            if person_odom is not None:
+                debug_lines.append(("PERSON_ODOM x={:.2f} y={:.2f}".format(person_odom[0], person_odom[1]), [120, 220, 255]))
             else:
-                cv2.putText(frame,"person depth invalid",(0,350), cv2.FONT_HERSHEY_PLAIN, 2, [0,0,255], 3)
-            self.DrawOdomPose(frame, odom_pose, 50, odom_topic, odom_status)
+                debug_lines.append(("PERSON_ODOM --", [120, 120, 120]))
+            debug_lines.extend(self.BuildOdomLines(odom_pose, odom_topic, odom_status))
+            self.DrawDebugPanel(frame, debug_lines)
 
             #pub cmdvel
             if kUseRos1Transfer:
@@ -256,30 +270,30 @@ class RobotController(object):
             else:
                 self.ros2_transfer.SendCmdVel(0.0, 0.0)
             self.last_linear_velocity = 0.0
-            self.DrawOdomPose(frame, odom_pose, 50, odom_topic, odom_status)
-            cv2.putText(frame,"Miss Person".format(self.GetTargetId()),(20,100), cv2.FONT_HERSHEY_PLAIN, 2, [0,0,255], 3)
-            cv2.putText(frame,"Press \"Enter\" to reset ID",(20,125), cv2.FONT_HERSHEY_PLAIN, 2, [255,0,0], 2)
-            cv2.putText(frame,"{:.02f} m/s".format(0),(0,250), cv2.FONT_HERSHEY_PLAIN, 2, [255,0,0], 3)
-            cv2.putText(frame,"{:.02f} rad/s".format(0),(0,300), cv2.FONT_HERSHEY_PLAIN, 2, [255,0,0], 3)   
+            debug_lines = [
+                ("FPS {:.1f}  MODE lost  ID {}  enter=reset".format(self.fps_counter.GetFps(), self.GetTargetId()), [0, 80, 255]),
+                ("CMD v=0.00m/s  w=0.00rad/s", [255, 180, 80]),
+                ("TARGET not visible", [0, 80, 255]),
+            ]
+            debug_lines.extend(self.BuildOdomLines(odom_pose, odom_topic, odom_status))
+            self.DrawDebugPanel(frame, debug_lines)
             return frame
 
     def NonTrackAndDraw(self, frame, odom_pose=None, odom_topic=None, odom_status=None):
-        frame = cv2.UMat(frame)
         self.fps_counter.Count()
-        frame = cv2.putText(frame, "fps {:.02f}".format(self.fps_counter.GetFps()), (10, 20),
-                    cv2.FONT_HERSHEY_PLAIN, 2, [0, 128, 0], 2)
         self.InputAndProcess(frame)
         if kUseRos1Transfer:
             self.ros1_transfer.SendCmdVel(0.0, 0.0)
         else:
             self.ros2_transfer.SendCmdVel(0.0, 0.0)
         self.last_linear_velocity = 0.0
-        self.DrawOdomPose(frame, odom_pose, 50, odom_topic, odom_status)
-
-        cv2.putText(frame,"Stop",(20,100), cv2.FONT_HERSHEY_PLAIN, 2, [0,0,255], 3)
-        cv2.putText(frame,"Enter the object ID:",(20,125), cv2.FONT_HERSHEY_PLAIN, 2, [255,0,0], 2)
-        cv2.putText(frame,"{:.02f} m/s".format(0),(0,250), cv2.FONT_HERSHEY_PLAIN, 2, [255,0,0], 3)
-        cv2.putText(frame,"{:.02f} rad/s".format(0),(0,300), cv2.FONT_HERSHEY_PLAIN, 2, [255,0,0], 3)    
+        debug_lines = [
+            ("FPS {:.1f}  MODE idle".format(self.fps_counter.GetFps()), [80, 255, 80]),
+            ("CMD v=0.00m/s  w=0.00rad/s", [255, 180, 80]),
+            ("INPUT target ID: {}".format(self.id_str if self.id_str != "" else "--"), [255, 255, 255]),
+        ]
+        debug_lines.extend(self.BuildOdomLines(odom_pose, odom_topic, odom_status))
+        self.DrawDebugPanel(frame, debug_lines)
         return frame
 
     def Run(self, frame, depth_frame=None, color_intrinsics=None, odom_pose=None, odom_topic=None, odom_status=None):
