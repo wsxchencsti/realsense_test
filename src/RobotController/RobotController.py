@@ -22,14 +22,14 @@ kLinearDistanceKp = 0.6
 kMaxForwardVelocity = 0.6
 kLinearVelocitySmooth = 0.6
 kAngularHeadingKp = 1.2
-kMaxControlRadianVelocity = 0.45
-kAngularVelocitySmooth = 0.5
+kMaxControlRadianVelocity = 0.70
+kAngularVelocitySmooth = 0.3
 kHeadingDeadband = 0.05
 kPathMinPointDistance = 0.10
 kPathLookaheadDistance = 0.60
 kPathTargetDeadband = 0.08
-kPathMinForwardDistance = 0.25
-kPathMaxHeadingError = 0.35
+kPathMinForwardDistance = 0.12
+kPathMaxHeadingError = 0.65
 kPathMinPointsForControl = 3
 kMaxPathPoints = 1000
 
@@ -315,7 +315,6 @@ class RobotController(object):
                 distance_error = person_distance - kTargetDistance
             if force_stop_by_distance or person_distance is None:
                 linear_velocity = 0.0
-                radian_velocity = 0.0
             elif control_forward is not None and control_lateral is not None:
                 if control_mode == "path":
                     control_distance = math.sqrt(control_forward * control_forward + control_lateral * control_lateral)
