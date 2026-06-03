@@ -3,6 +3,7 @@ import cv2
 import signal
 
 from RealSenseWrapper import RealSenseWrapper
+from OdomWrapper import OdomWrapper
 from RobotController import RobotController
 
 break_flag = False
@@ -15,6 +16,7 @@ signal.signal(signal.SIGINT, set_break_flag)
 
 realsense_wrapper = RealSenseWrapper.RealSenseWrapper()
 robot_controller = RobotController.RobotController()
+odom_wrapper = OdomWrapper.OdomWrapper()
 
 while break_flag != True:
     ############
@@ -25,11 +27,12 @@ while break_flag != True:
         continue
     depth_frame = realsense_wrapper.GetDepthFrame()
     color_intrinsics = realsense_wrapper.GetColorIntrinsics()
+    odom_pose = odom_wrapper.GetPose()
 
     ####################
     # control the robot
     ####################
-    final_frame = robot_controller.Run(bgr_frame, depth_frame, color_intrinsics)
+    final_frame = robot_controller.Run(bgr_frame, depth_frame, color_intrinsics, odom_pose)
     if type(final_frame) == type(None):
         continue
 
@@ -41,5 +44,6 @@ while break_flag != True:
         break
 
 realsense_wrapper.StopThread()
+odom_wrapper.StopThread()
 
 cv2.destroyAllWindows()

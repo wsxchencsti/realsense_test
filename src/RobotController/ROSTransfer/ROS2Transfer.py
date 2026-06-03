@@ -4,7 +4,8 @@ from geometry_msgs.msg import Twist
 
 class ROS2Transfer(Node):
     def __init__(self):
-        rclpy.init()
+        if not rclpy.ok():
+            rclpy.init()
         super().__init__('track_twist_publisher')
         self.cmd_vel_pub = self.create_publisher(Twist, 'cmd_vel', 1)
 

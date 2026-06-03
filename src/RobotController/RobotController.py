@@ -103,6 +103,24 @@ class RobotController(object):
         camera_y = (pixel_y - intrinsics.ppy) / intrinsics.fy * depth
         camera_z = depth
         return camera_x, camera_y, camera_z
+
+    def TransformPersonToOdom(self, person_forward, person_lateral, odom_pose):
+        if person_forward is None or person_lateral is None or odom_pose is None:
+            return None
+
+        robot_x, robot_y, robot_yaw = odom_pose
+        person_odom_x = robot_x + math.cos(robot_yaw) * person_forward - math.sin(robot_yaw) * person_lateral
+        person_odom_y = robot_y + math.sin(robot_yaw) * person_forward + math.cos(robot_yaw) * person_lateral
+        return person_odom_x, person_odom_y
+
+    def DrawOdomPose(self, frame, odom_pose, y):
+        if odom_pose is None:
+            cv2.putText(frame,"odom invalid",(0,y), cv2.FONT_HERSHEY_PLAIN, 1.5, [0,0,255], 2)
+            return
+
+        robot_x, robot_y, robot_yaw = odom_pose
+        cv2.putText(frame,"odom x {:.02f} y {:.02f} yaw {:.02f}".format(robot_x, robot_y, robot_yaw),
+                    (0,y), cv2.FONT_HERSHEY_PLAIN, 1.5, [255,0,0], 2)
     
     def InputAndProcess(self, frame):
         key = cv2.waitKey(1)
@@ -128,7 +146,7 @@ class RobotController(object):
                 self.SetIsTracking(False)
         frame = cv2.putText(frame, self.id_str, (20, 150), cv2.FONT_HERSHEY_PLAIN, 2, [255, 0, 0], 2)
 
-    def TrackAndDraw(self, frame, box, depth_frame=None, color_intrinsics=None):
+    def TrackAndDraw(self, frame, box, depth_frame=None, color_intrinsics=None, odom_pose=None):
         shape = frame.shape
         frame = cv2.UMat(frame)
 
@@ -151,10 +169,12 @@ class RobotController(object):
             #cal radian_velocity
             person_lateral = None
             person_forward = None
+            person_odom = None
             heading_error = None
             if person_point is not None:
                 person_lateral = -person_point[0]
                 person_forward = person_point[2]
+                person_odom = self.TransformPersonToOdom(person_forward, person_lateral, odom_pose)
                 heading_error = math.atan2(person_lateral, person_forward)
                 if abs(heading_error) < kHeadingDeadband:
                     radian_velocity = 0.0
@@ -201,8 +221,11 @@ class RobotController(object):
                 if person_point is not None:
                     cv2.putText(frame,"person x {:.02f} z {:.02f} m".format(person_lateral, person_forward),(0,450), cv2.FONT_HERSHEY_PLAIN, 2, [255,0,0], 3)
                     cv2.putText(frame,"heading {:.02f} rad".format(heading_error),(0,500), cv2.FONT_HERSHEY_PLAIN, 2, [255,0,0], 3)
+                    if person_odom is not None:
+                        cv2.putText(frame,"person odom x {:.02f} y {:.02f}".format(person_odom[0], person_odom[1]),(0,75), cv2.FONT_HERSHEY_PLAIN, 1.5, [255,0,0], 2)
             else:
                 cv2.putText(frame,"person depth invalid",(0,350), cv2.FONT_HERSHEY_PLAIN, 2, [0,0,255], 3)
+            self.DrawOdomPose(frame, odom_pose, 50)
 
             #pub cmdvel
             if kUseRos1Transfer:
@@ -217,13 +240,14 @@ class RobotController(object):
             else:
                 self.ros2_transfer.SendCmdVel(0.0, 0.0)
             self.last_linear_velocity = 0.0
+            self.DrawOdomPose(frame, odom_pose, 50)
             cv2.putText(frame,"Miss Person".format(self.GetTargetId()),(20,100), cv2.FONT_HERSHEY_PLAIN, 2, [0,0,255], 3)
             cv2.putText(frame,"Press \"Enter\" to reset ID",(20,125), cv2.FONT_HERSHEY_PLAIN, 2, [255,0,0], 2)
             cv2.putText(frame,"{:.02f} m/s".format(0),(0,250), cv2.FONT_HERSHEY_PLAIN, 2, [255,0,0], 3)
             cv2.putText(frame,"{:.02f} rad/s".format(0),(0,300), cv2.FONT_HERSHEY_PLAIN, 2, [255,0,0], 3)   
             return frame
 
-    def NonTrackAndDraw(self, frame):
+    def NonTrackAndDraw(self, frame, odom_pose=None):
         frame = cv2.UMat(frame)
         self.fps_counter.Count()
         frame = cv2.putText(frame, "fps {:.02f}".format(self.fps_counter.GetFps()), (10, 20),
@@ -234,6 +258,7 @@ class RobotController(object):
         else:
             self.ros2_transfer.SendCmdVel(0.0, 0.0)
         self.last_linear_velocity = 0.0
+        self.DrawOdomPose(frame, odom_pose, 50)
 
         cv2.putText(frame,"Stop",(20,100), cv2.FONT_HERSHEY_PLAIN, 2, [0,0,255], 3)
         cv2.putText(frame,"Enter the object ID:",(20,125), cv2.FONT_HERSHEY_PLAIN, 2, [255,0,0], 2)
@@ -241,12 +266,12 @@ class RobotController(object):
         cv2.putText(frame,"{:.02f} rad/s".format(0),(0,300), cv2.FONT_HERSHEY_PLAIN, 2, [255,0,0], 3)    
         return frame
 
-    def Run(self, frame, depth_frame=None, color_intrinsics=None):
+    def Run(self, frame, depth_frame=None, color_intrinsics=None, odom_pose=None):
         results = self.yolo_wrapper.Track(frame)
         if(len(results)>0):
             if(self.GetIsTracking()):
                 box = self.FindTarget(results[0].boxes)                
-                return self.TrackAndDraw(frame, box, depth_frame, color_intrinsics)
+                return self.TrackAndDraw(frame, box, depth_frame, color_intrinsics, odom_pose)
             else:
                 frame = results[0].plot()
-                return self.NonTrackAndDraw(frame)
+                return self.NonTrackAndDraw(frame, odom_pose)
