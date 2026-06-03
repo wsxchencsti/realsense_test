@@ -6,15 +6,28 @@ import pyrealsense2 as rs
 
 
 class RealSenseWrapper:
-    def __init__(self, width=640, height=480, fps=30):
-        self.width = width
-        self.height = height
+    def __init__(
+        self,
+        width=640,
+        height=480,
+        fps=30,
+        color_width=None,
+        color_height=None,
+        depth_width=None,
+        depth_height=None,
+    ):
+        self.color_width = color_width if color_width is not None else width
+        self.color_height = color_height if color_height is not None else height
+        self.depth_width = depth_width if depth_width is not None else width
+        self.depth_height = depth_height if depth_height is not None else height
+        self.width = self.color_width
+        self.height = self.color_height
         self.fps = fps
 
         self.pipeline = rs.pipeline()
         self.config = rs.config()
-        self.config.enable_stream(rs.stream.color, width, height, rs.format.bgr8, fps)
-        self.config.enable_stream(rs.stream.depth, width, height, rs.format.z16, fps)
+        self.config.enable_stream(rs.stream.color, self.color_width, self.color_height, rs.format.bgr8, fps)
+        self.config.enable_stream(rs.stream.depth, self.depth_width, self.depth_height, rs.format.z16, fps)
 
         self.profile = self.pipeline.start(self.config)
         self.align = rs.align(rs.stream.color)
@@ -24,6 +37,16 @@ class RealSenseWrapper:
 
         color_profile = self.profile.get_stream(rs.stream.color).as_video_stream_profile()
         self.color_intrinsics = color_profile.get_intrinsics()
+
+        print(
+            "[realsense] color {}x{} depth {}x{} fps {}".format(
+                self.color_width,
+                self.color_height,
+                self.depth_width,
+                self.depth_height,
+                self.fps,
+            )
+        )
 
         self.frame = None
         self.depth_image = None

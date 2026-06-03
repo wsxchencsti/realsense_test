@@ -14,7 +14,13 @@ def set_break_flag(signum, frame):
 
 signal.signal(signal.SIGINT, set_break_flag)
 
-realsense_wrapper = RealSenseWrapper.RealSenseWrapper()
+realsense_wrapper = RealSenseWrapper.RealSenseWrapper(
+    color_width=1280,
+    color_height=800,
+    depth_width=1280,
+    depth_height=800,
+    fps=15,
+)
 robot_controller = RobotController.RobotController()
 odom_wrapper = OdomWrapper.OdomWrapper()
 
