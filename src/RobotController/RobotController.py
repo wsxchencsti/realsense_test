@@ -23,6 +23,8 @@ kMaxForwardVelocity = 0.6
 kLinearVelocitySmooth = 0.6
 kAngularHeadingKp = 1.2
 kHeadingDeadband = 0.05
+kPathMinPointDistance = 0.10
+kMaxPathPoints = 1000
 
 class RobotController(object):
     def __init__(self):
@@ -38,6 +40,7 @@ class RobotController(object):
         self.id_str = ""
 
         self.last_linear_velocity = 0.0
+        self.person_path = []
 
     def SetTargetId(self, id):
         self.target_id = id
@@ -113,6 +116,28 @@ class RobotController(object):
         person_odom_y = robot_y + math.sin(robot_yaw) * person_forward + math.cos(robot_yaw) * person_lateral
         return person_odom_x, person_odom_y
 
+    def ClearPersonPath(self):
+        self.person_path = []
+
+    def AddPersonPathPoint(self, person_odom):
+        if person_odom is None:
+            return False
+
+        if len(self.person_path) == 0:
+            self.person_path.append(person_odom)
+            return True
+
+        last_x, last_y = self.person_path[-1]
+        dx = person_odom[0] - last_x
+        dy = person_odom[1] - last_y
+        if math.sqrt(dx * dx + dy * dy) < kPathMinPointDistance:
+            return False
+
+        self.person_path.append(person_odom)
+        if len(self.person_path) > kMaxPathPoints:
+            self.person_path.pop(0)
+        return True
+
     def DrawOdomPose(self, frame, odom_pose, y, odom_topic=None, odom_status=None):
         if odom_pose is None:
             receive_count = 0
@@ -146,6 +171,7 @@ class RobotController(object):
                     self.SetTargetId(0)
                 else:
                     self.SetTargetId(int(self.id_str))
+                self.ClearPersonPath()
                 self.id_str = ""
 
             if(self.GetTargetId() != kDefaultTrackId):
@@ -153,8 +179,9 @@ class RobotController(object):
 
         else:
             if key == 10 or key == 13 or key == 141:  # 回车
-                self.id_str == ""
+                self.id_str = ""
                 self.target_id = 0
+                self.ClearPersonPath()
                 self.SetIsTracking(False)
         return frame
 
@@ -187,6 +214,7 @@ class RobotController(object):
                 person_lateral = -person_point[0]
                 person_forward = person_point[2]
                 person_odom = self.TransformPersonToOdom(person_forward, person_lateral, odom_pose)
+                self.AddPersonPathPoint(person_odom)
                 heading_error = math.atan2(person_lateral, person_forward)
                 if abs(heading_error) < kHeadingDeadband:
                     radian_velocity = 0.0
@@ -237,6 +265,7 @@ class RobotController(object):
                     cv2.putText(frame,"rel x {:.2f} z {:.2f} head {:.2f}".format(person_lateral, person_forward, heading_error),(0,330), cv2.FONT_HERSHEY_PLAIN, 1.2, [255,0,0], 1)
                     if person_odom is not None:
                         cv2.putText(frame,"person odom x {:.2f} y {:.2f}".format(person_odom[0], person_odom[1]),(0,350), cv2.FONT_HERSHEY_PLAIN, 1.2, [255,0,0], 1)
+                        cv2.putText(frame,"path n {:d} last x {:.2f} y {:.2f}".format(len(self.person_path), person_odom[0], person_odom[1]),(0,370), cv2.FONT_HERSHEY_PLAIN, 1.2, [255,0,0], 1)
             else:
                 cv2.putText(frame,"depth invalid",(0,290), cv2.FONT_HERSHEY_PLAIN, 1.2, [0,0,255], 1)
 
