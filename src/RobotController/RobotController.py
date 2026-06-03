@@ -113,20 +113,12 @@ class RobotController(object):
         person_odom_y = robot_y + math.sin(robot_yaw) * person_forward + math.cos(robot_yaw) * person_lateral
         return person_odom_x, person_odom_y
 
-    def FormatValue(self, value, precision=2):
-        if value is None:
-            return "--"
-        return ("{:.%df}" % precision).format(value)
-
-    def DrawSmallText(self, frame, text, pos, color=[255,0,0]):
-        cv2.putText(frame, text, pos, cv2.FONT_HERSHEY_PLAIN, 1.2, color, 1)
-
-    def DrawOdomText(self, frame, odom_pose, y, odom_topic=None, odom_status=None):
+    def DrawOdomPose(self, frame, odom_pose, y, odom_topic=None, odom_status=None):
         if odom_pose is None:
             receive_count = 0
             if odom_status is not None:
                 _, _, receive_count, _ = odom_status
-            self.DrawSmallText(frame, "odom invalid recv {}".format(receive_count), (0, y), [0,0,255])
+            cv2.putText(frame,"odom invalid recv {}".format(receive_count),(0,y), cv2.FONT_HERSHEY_PLAIN, 1.2, [0,0,255], 1)
             return
 
         robot_x, robot_y, robot_yaw = odom_pose
@@ -137,8 +129,10 @@ class RobotController(object):
             age_text = "--" if age is None else "{:.2f}s".format(age)
             qos_text = " qos {} age {}".format(qos_name, age_text)
 
-        self.DrawSmallText(frame, "odom x {:.2f} y {:.2f} yaw {:.2f}".format(robot_x, robot_y, robot_yaw), (0, y), [255,0,0])
-        self.DrawSmallText(frame, "odom {}{}".format(topic_text, qos_text), (0, y + 18), [255,0,0])
+        cv2.putText(frame,"odom x {:.2f} y {:.2f} yaw {:.2f}".format(robot_x, robot_y, robot_yaw),
+                    (0,y), cv2.FONT_HERSHEY_PLAIN, 1.2, [255,0,0], 1)
+        cv2.putText(frame,"odom {}{}".format(topic_text, qos_text),
+                    (0,y + 18), cv2.FONT_HERSHEY_PLAIN, 1.2, [255,0,0], 1)
     
     def InputAndProcess(self, frame):
         key = cv2.waitKey(1)
@@ -166,8 +160,11 @@ class RobotController(object):
 
     def TrackAndDraw(self, frame, box, depth_frame=None, color_intrinsics=None, odom_pose=None, odom_topic=None, odom_status=None):
         shape = frame.shape
+        frame = cv2.UMat(frame)
 
         self.fps_counter.Count()
+        frame = cv2.putText(frame, "fps {:.1f}".format(self.fps_counter.GetFps()), (10, 20),
+                    cv2.FONT_HERSHEY_PLAIN, 1.2, [0, 128, 0], 1)
         self.InputAndProcess(frame)
 
         if(box != None):            
@@ -229,15 +226,19 @@ class RobotController(object):
             cv2.rectangle(frame,(x1, y1),(x1+t_size[0]+3,y1+t_size[1]+4), [255,128,128],-1)
             cv2.putText(frame,label,(x1,y1+t_size[1]+4), cv2.FONT_HERSHEY_PLAIN, 2, [255,255,255], 2)
 
-            self.DrawSmallText(frame, "fps {:.1f}  track id {}  enter reset".format(self.fps_counter.GetFps(), self.GetTargetId()), (0, 20), [0,128,0])
-            self.DrawOdomText(frame, odom_pose, 40, odom_topic, odom_status)
-            self.DrawSmallText(frame, "cmd v {} w {}".format(self.FormatValue(linear_velocity), self.FormatValue(radian_velocity)), (0, 90), [255,0,0])
-            self.DrawSmallText(frame, "depth {} target {} err {}".format(
-                self.FormatValue(person_distance), self.FormatValue(kTargetDistance), self.FormatValue(distance_error)), (0, 110), [255,0,0])
-            self.DrawSmallText(frame, "rel x {} z {} head {}".format(
-                self.FormatValue(person_lateral), self.FormatValue(person_forward), self.FormatValue(heading_error)), (0, 130), [255,0,0])
-            if person_odom is not None:
-                self.DrawSmallText(frame, "person odom x {:.2f} y {:.2f}".format(person_odom[0], person_odom[1]), (0, 150), [255,0,0])
+            cv2.putText(frame,"ID {:} enter reset".format(self.GetTargetId()),(20,125), cv2.FONT_HERSHEY_PLAIN, 1.2, [255,0,0], 1)
+            self.DrawOdomPose(frame, odom_pose, 50, odom_topic, odom_status)
+            cv2.putText(frame,"v {:.2f} m/s".format(linear_velocity),(0,250), cv2.FONT_HERSHEY_PLAIN, 1.2, [255,0,0], 1)
+            cv2.putText(frame,"w {:.2f} rad/s".format(radian_velocity),(0,270), cv2.FONT_HERSHEY_PLAIN, 1.2, [255,0,0], 1)
+            if person_distance is not None:
+                cv2.putText(frame,"depth {:.2f} target {:.2f}".format(person_distance, kTargetDistance),(0,290), cv2.FONT_HERSHEY_PLAIN, 1.2, [255,0,0], 1)
+                cv2.putText(frame,"err {:.2f} target_v {:.2f}".format(distance_error, target_linear_velocity),(0,310), cv2.FONT_HERSHEY_PLAIN, 1.2, [255,0,0], 1)
+                if person_point is not None:
+                    cv2.putText(frame,"rel x {:.2f} z {:.2f} head {:.2f}".format(person_lateral, person_forward, heading_error),(0,330), cv2.FONT_HERSHEY_PLAIN, 1.2, [255,0,0], 1)
+                    if person_odom is not None:
+                        cv2.putText(frame,"person odom x {:.2f} y {:.2f}".format(person_odom[0], person_odom[1]),(0,350), cv2.FONT_HERSHEY_PLAIN, 1.2, [255,0,0], 1)
+            else:
+                cv2.putText(frame,"depth invalid",(0,290), cv2.FONT_HERSHEY_PLAIN, 1.2, [0,0,255], 1)
 
             #pub cmdvel
             if kUseRos1Transfer:
@@ -252,24 +253,29 @@ class RobotController(object):
             else:
                 self.ros2_transfer.SendCmdVel(0.0, 0.0)
             self.last_linear_velocity = 0.0
-            self.DrawSmallText(frame, "fps {:.1f}  lost id {}  enter reset".format(self.fps_counter.GetFps(), self.GetTargetId()), (0, 20), [0,0,255])
-            self.DrawOdomText(frame, odom_pose, 40, odom_topic, odom_status)
-            self.DrawSmallText(frame, "cmd v 0.00 w 0.00", (0, 90), [255,0,0])
-            self.DrawSmallText(frame, "target not visible", (0, 110), [0,0,255])
+            self.DrawOdomPose(frame, odom_pose, 50, odom_topic, odom_status)
+            cv2.putText(frame,"lost ID {:}".format(self.GetTargetId()),(20,100), cv2.FONT_HERSHEY_PLAIN, 1.2, [0,0,255], 1)
+            cv2.putText(frame,"enter reset",(20,120), cv2.FONT_HERSHEY_PLAIN, 1.2, [255,0,0], 1)
+            cv2.putText(frame,"v 0.00 m/s",(0,250), cv2.FONT_HERSHEY_PLAIN, 1.2, [255,0,0], 1)
+            cv2.putText(frame,"w 0.00 rad/s",(0,270), cv2.FONT_HERSHEY_PLAIN, 1.2, [255,0,0], 1)
             return frame
 
     def NonTrackAndDraw(self, frame, odom_pose=None, odom_topic=None, odom_status=None):
+        frame = cv2.UMat(frame)
         self.fps_counter.Count()
+        frame = cv2.putText(frame, "fps {:.1f}".format(self.fps_counter.GetFps()), (10, 20),
+                    cv2.FONT_HERSHEY_PLAIN, 1.2, [0, 128, 0], 1)
         self.InputAndProcess(frame)
         if kUseRos1Transfer:
             self.ros1_transfer.SendCmdVel(0.0, 0.0)
         else:
             self.ros2_transfer.SendCmdVel(0.0, 0.0)
         self.last_linear_velocity = 0.0
-        self.DrawSmallText(frame, "fps {:.1f}  idle".format(self.fps_counter.GetFps()), (0, 20), [0,128,0])
-        self.DrawOdomText(frame, odom_pose, 40, odom_topic, odom_status)
-        self.DrawSmallText(frame, "cmd v 0.00 w 0.00", (0, 90), [255,0,0])
-        self.DrawSmallText(frame, "input id {}".format(self.id_str if self.id_str != "" else "--"), (0, 110), [255,0,0])
+        self.DrawOdomPose(frame, odom_pose, 50, odom_topic, odom_status)
+        cv2.putText(frame,"stop",(20,100), cv2.FONT_HERSHEY_PLAIN, 1.2, [0,0,255], 1)
+        cv2.putText(frame,"input ID:",(20,120), cv2.FONT_HERSHEY_PLAIN, 1.2, [255,0,0], 1)
+        cv2.putText(frame,"v 0.00 m/s",(0,250), cv2.FONT_HERSHEY_PLAIN, 1.2, [255,0,0], 1)
+        cv2.putText(frame,"w 0.00 rad/s",(0,270), cv2.FONT_HERSHEY_PLAIN, 1.2, [255,0,0], 1)
         return frame
 
     def Run(self, frame, depth_frame=None, color_intrinsics=None, odom_pose=None, odom_topic=None, odom_status=None):
