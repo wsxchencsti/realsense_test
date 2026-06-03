@@ -9,7 +9,7 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy
 
 
 class _OdomSubscriber(Node):
-    def __init__(self, topic):
+    def __init__(self, topics):
         super().__init__('track_odom_subscriber')
 
         qos = QoSProfile(depth=1)
@@ -17,15 +17,24 @@ class _OdomSubscriber(Node):
 
         self.lock = threading.Lock()
         self.pose = None
-        self.create_subscription(Odometry, topic, self.OdomCallback, qos)
+        self.topic = None
 
-    def OdomCallback(self, msg):
+        for topic in topics:
+            self.create_subscription(Odometry, topic, self.MakeOdomCallback(topic), qos)
+
+    def MakeOdomCallback(self, topic):
+        def callback(msg):
+            self.OdomCallback(topic, msg)
+        return callback
+
+    def OdomCallback(self, topic, msg):
         position = msg.pose.pose.position
         orientation = msg.pose.pose.orientation
         yaw = self.QuaternionToYaw(orientation.x, orientation.y, orientation.z, orientation.w)
 
         with self.lock:
             self.pose = (position.x, position.y, yaw)
+            self.topic = topic
 
     def QuaternionToYaw(self, x, y, z, w):
         siny_cosp = 2.0 * (w * z + x * y)
@@ -34,16 +43,19 @@ class _OdomSubscriber(Node):
 
 
 class OdomWrapper:
-    def __init__(self, topic='/leg_odom2'):
+    def __init__(self, topics=None):
         if not rclpy.ok():
             rclpy.init()
 
-        self.node = _OdomSubscriber(topic)
+        if topics is None:
+            topics = ['/leg_odom2', '/leg_odom']
+
+        self.node = _OdomSubscriber(topics)
         self.break_flag = False
         self.spin_thread = threading.Thread(target=self.SpinThreadFunc)
         self.spin_thread.start()
 
-        print('OdomWrapper topic: {}'.format(topic))
+        print('OdomWrapper topics: {}'.format(', '.join(topics)))
 
     def __del__(self):
         try:
@@ -68,3 +80,7 @@ class OdomWrapper:
     def GetPose(self):
         with self.node.lock:
             return self.node.pose
+
+    def GetTopic(self):
+        with self.node.lock:
+            return self.node.topic
