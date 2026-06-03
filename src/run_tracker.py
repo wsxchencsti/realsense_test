@@ -29,11 +29,12 @@ while break_flag != True:
     color_intrinsics = realsense_wrapper.GetColorIntrinsics()
     odom_pose = odom_wrapper.GetPose()
     odom_topic = odom_wrapper.GetTopic()
+    odom_status = odom_wrapper.GetStatus()
 
     ####################
     # control the robot
     ####################
-    final_frame = robot_controller.Run(bgr_frame, depth_frame, color_intrinsics, odom_pose, odom_topic)
+    final_frame = robot_controller.Run(bgr_frame, depth_frame, color_intrinsics, odom_pose, odom_topic, odom_status)
     if type(final_frame) == type(None):
         continue
 

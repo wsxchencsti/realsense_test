@@ -5,29 +5,43 @@ import time
 import rclpy
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
-from rclpy.qos import QoSProfile, ReliabilityPolicy
+from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 
 
 class _OdomSubscriber(Node):
     def __init__(self, topics):
         super().__init__('track_odom_subscriber')
 
-        qos = QoSProfile(depth=1)
-        qos.reliability = ReliabilityPolicy.BEST_EFFORT
+        best_effort_qos = QoSProfile(depth=1)
+        best_effort_qos.history = HistoryPolicy.KEEP_LAST
+        best_effort_qos.reliability = ReliabilityPolicy.BEST_EFFORT
+
+        reliable_qos = QoSProfile(depth=1)
+        reliable_qos.history = HistoryPolicy.KEEP_LAST
+        reliable_qos.reliability = ReliabilityPolicy.RELIABLE
 
         self.lock = threading.Lock()
         self.pose = None
         self.topic = None
+        self.qos_name = None
+        self.receive_count = 0
+        self.last_receive_time = None
+        self.subscriptions = []
 
         for topic in topics:
-            self.create_subscription(Odometry, topic, self.MakeOdomCallback(topic), qos)
+            self.subscriptions.append(
+                self.create_subscription(Odometry, topic, self.MakeOdomCallback(topic, 'best_effort'), best_effort_qos)
+            )
+            self.subscriptions.append(
+                self.create_subscription(Odometry, topic, self.MakeOdomCallback(topic, 'reliable'), reliable_qos)
+            )
 
-    def MakeOdomCallback(self, topic):
+    def MakeOdomCallback(self, topic, qos_name):
         def callback(msg):
-            self.OdomCallback(topic, msg)
+            self.OdomCallback(topic, qos_name, msg)
         return callback
 
-    def OdomCallback(self, topic, msg):
+    def OdomCallback(self, topic, qos_name, msg):
         position = msg.pose.pose.position
         orientation = msg.pose.pose.orientation
         yaw = self.QuaternionToYaw(orientation.x, orientation.y, orientation.z, orientation.w)
@@ -35,6 +49,9 @@ class _OdomSubscriber(Node):
         with self.lock:
             self.pose = (position.x, position.y, yaw)
             self.topic = topic
+            self.qos_name = qos_name
+            self.receive_count += 1
+            self.last_receive_time = time.time()
 
     def QuaternionToYaw(self, x, y, z, w):
         siny_cosp = 2.0 * (w * z + x * y)
@@ -84,3 +101,11 @@ class OdomWrapper:
     def GetTopic(self):
         with self.node.lock:
             return self.node.topic
+
+    def GetStatus(self):
+        with self.node.lock:
+            if self.node.last_receive_time is None:
+                age = None
+            else:
+                age = time.time() - self.node.last_receive_time
+            return self.node.topic, self.node.qos_name, self.node.receive_count, age
