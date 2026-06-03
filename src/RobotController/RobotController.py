@@ -22,10 +22,15 @@ kLinearDistanceKp = 0.6
 kMaxForwardVelocity = 0.6
 kLinearVelocitySmooth = 0.6
 kAngularHeadingKp = 1.2
+kMaxControlRadianVelocity = 0.45
+kAngularVelocitySmooth = 0.5
 kHeadingDeadband = 0.05
 kPathMinPointDistance = 0.10
 kPathLookaheadDistance = 0.60
 kPathTargetDeadband = 0.08
+kPathMinForwardDistance = 0.25
+kPathMaxHeadingError = 0.35
+kPathMinPointsForControl = 3
 kMaxPathPoints = 1000
 
 class RobotController(object):
@@ -42,6 +47,7 @@ class RobotController(object):
         self.id_str = ""
 
         self.last_linear_velocity = 0.0
+        self.last_radian_velocity = 0.0
         self.person_path = []
 
     def SetTargetId(self, id):
@@ -257,6 +263,7 @@ class RobotController(object):
             path_closest_index = None
             path_target_index = None
             path_target_robot = None
+            path_heading_error = None
             control_mode = "person"
             control_forward = None
             control_lateral = None
@@ -272,7 +279,14 @@ class RobotController(object):
 
             path_target, path_closest_index, path_target_index = self.GetPathLookaheadTarget(odom_pose)
             path_target_robot = self.TransformOdomToRobot(path_target, odom_pose)
-            if path_target_robot is not None and path_target_robot[0] > kPathTargetDeadband:
+            if path_target_robot is not None:
+                path_heading_error = math.atan2(path_target_robot[1], path_target_robot[0])
+            if (
+                path_target_robot is not None
+                and len(self.person_path) >= kPathMinPointsForControl
+                and path_target_robot[0] > kPathMinForwardDistance
+                and abs(path_heading_error) <= kPathMaxHeadingError
+            ):
                 control_forward, control_lateral = path_target_robot
                 control_mode = "path"
 
@@ -283,8 +297,12 @@ class RobotController(object):
                 else:
                     radian_velocity = heading_error * kAngularHeadingKp
                     radian_velocity = max(
-                        -TransferConstants.kMaxRadianVelocity,
-                        min(TransferConstants.kMaxRadianVelocity, radian_velocity)
+                        -kMaxControlRadianVelocity,
+                        min(kMaxControlRadianVelocity, radian_velocity)
+                    )
+                    radian_velocity = (
+                        kAngularVelocitySmooth * self.last_radian_velocity
+                        + (1.0 - kAngularVelocitySmooth) * radian_velocity
                     )
             else:
                 radian_velocity = 0.0
@@ -297,6 +315,7 @@ class RobotController(object):
                 distance_error = person_distance - kTargetDistance
             if force_stop_by_distance or person_distance is None:
                 linear_velocity = 0.0
+                radian_velocity = 0.0
             elif control_forward is not None and control_lateral is not None:
                 if control_mode == "path":
                     control_distance = math.sqrt(control_forward * control_forward + control_lateral * control_lateral)
@@ -362,6 +381,7 @@ class RobotController(object):
             else:
                 self.ros2_transfer.SendCmdVel(linear_velocity, radian_velocity)
             self.last_linear_velocity = linear_velocity
+            self.last_radian_velocity = radian_velocity
             return frame
         else:
             if kUseRos1Transfer:
@@ -369,6 +389,7 @@ class RobotController(object):
             else:
                 self.ros2_transfer.SendCmdVel(0.0, 0.0)
             self.last_linear_velocity = 0.0
+            self.last_radian_velocity = 0.0
             self.DrawOdomPose(frame, odom_pose, 50, odom_topic, odom_status)
             cv2.putText(frame,"lost ID {:}".format(self.GetTargetId()),(20,100), cv2.FONT_HERSHEY_PLAIN, 1.2, [0,0,255], 1)
             cv2.putText(frame,"enter reset",(20,120), cv2.FONT_HERSHEY_PLAIN, 1.2, [255,0,0], 1)
@@ -387,6 +408,7 @@ class RobotController(object):
         else:
             self.ros2_transfer.SendCmdVel(0.0, 0.0)
         self.last_linear_velocity = 0.0
+        self.last_radian_velocity = 0.0
         self.DrawOdomPose(frame, odom_pose, 50, odom_topic, odom_status)
         cv2.putText(frame,"stop",(20,100), cv2.FONT_HERSHEY_PLAIN, 1.2, [0,0,255], 1)
         cv2.putText(frame,"input ID:",(20,120), cv2.FONT_HERSHEY_PLAIN, 1.2, [255,0,0], 1)
