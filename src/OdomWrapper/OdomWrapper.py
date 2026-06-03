@@ -3,6 +3,7 @@ import threading
 import time
 
 import rclpy
+from geometry_msgs.msg import PoseWithCovarianceStamped
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
@@ -32,12 +33,12 @@ class _OdomSubscriber(Node):
         self.last_receive_time = None
         self.odom_subscriptions = []
 
-        for topic in topics:
+        for topic, msg_type in topics:
             self.odom_subscriptions.append(
-                self.create_subscription(Odometry, topic, self.MakeOdomCallback(topic, 'best_effort'), best_effort_qos)
+                self.create_subscription(msg_type, topic, self.MakeOdomCallback(topic, 'best_effort'), best_effort_qos)
             )
             self.odom_subscriptions.append(
-                self.create_subscription(Odometry, topic, self.MakeOdomCallback(topic, 'reliable'), reliable_qos)
+                self.create_subscription(msg_type, topic, self.MakeOdomCallback(topic, 'reliable'), reliable_qos)
             )
 
     def MakeOdomCallback(self, topic, qos_name):
@@ -69,14 +70,17 @@ class OdomWrapper:
             rclpy.init()
 
         if topics is None:
-            topics = ['/leg_odom2', '/leg_odom']
+            topics = [
+                ('/leg_odom2', Odometry),
+                ('/leg_odom', PoseWithCovarianceStamped),
+            ]
 
         self.node = _OdomSubscriber(topics)
         self.break_flag = False
         self.spin_thread = threading.Thread(target=self.SpinThreadFunc)
         self.spin_thread.start()
 
-        print('OdomWrapper topics: {}'.format(', '.join(topics)))
+        print('OdomWrapper topics: {}'.format(', '.join([topic for topic, _ in topics])))
         time.sleep(1.0)
         print('OdomWrapper visible odom topics: {}'.format(', '.join(self.GetVisibleOdomTopics())))
 
